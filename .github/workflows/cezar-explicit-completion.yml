@@ -1,0 +1,42 @@
+name: Cezar explicit completion mock test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mock-done:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CEZ_DRY_RUN: "1"
+      CEZ_MOCK_PACE: "0"
+      CEZ_DISPATCH: "0"
+      CEZ_TELEMETRY: "0"
+      CI: "true"
+      GH_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Install package and create disposable test repository
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/fixture"
+          cd "$RUNNER_TEMP/pkg"
+          npm install --ignore-scripts --no-audit --no-fund --no-save cezar-run@0.20.0
+          cd "$RUNNER_TEMP/fixture"
+          echo "Synthetic data only" > README.md
+          git init -q
+          git config user.name "Synthetic"
+          git config user.email "synthetic@example.invalid"
+          git add README.md
+          git commit -qm "create fixture"
+      - name: Run mock with explicit upstream completion marker
+        shell: bash
+        run: |
+          set -u
+          cd "$RUNNER_TEMP/fixture"
+          timeout --signal=TERM --kill-after=5s 70s "$RUNNER_TEMP/pkg/node_modules/.bin/cezar-run" run "mock:done Read README.md and finish this synthetic task with no code changes" > "$RUNNER_TEMP/cezar.log" 2>&1
+          rc=$?
+          cat "$RUNNER_TEMP/cezar.log"
+          echo "CEZAR_MOCK_DONE_RC=$rc"
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          if ! grep -Eq 'run (done|review)' "$RUNNER_TEMP/cezar.log"; then echo "Missing terminal completion evidence"; exit 1; fi
