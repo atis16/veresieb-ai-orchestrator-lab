@@ -1,0 +1,92 @@
+name: Cezar graph review and bounded-repair mock
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review-and-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      CEZ_DRY_RUN: "1"
+      CEZ_MOCK_PACE: "0"
+      CEZ_DISPATCH: "0"
+      CEZ_TELEMETRY: "0"
+      CI: "true"
+      GH_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Install Cezar and set up synthetic fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/fixture/.ai/cezar/workflows"
+          cd "$RUNNER_TEMP/pkg"
+          timeout 90s npm install --ignore-scripts --no-audit --no-fund --no-save cezar-run@0.20.0
+          cd "$RUNNER_TEMP/fixture"
+          echo "Fake public codebase. No VeresiEB source." > README.md
+          cat > .ai/cezar/workflows/review-approve.yaml <<'YAML'
+          version: 2
+          name: review-approve
+          nodes:
+            - { id: start, type: start }
+            - { id: implement, type: agent, prompt: "{{task}} mock:done" }
+            - { id: verify, type: check, command: "test -f README.md" }
+            - { id: review, type: agent, prompt: "Independently review the synthetic task. mock:verdict=approve", verdicts: [approve, changes] }
+            - { id: approved, type: end, status: success }
+            - { id: blocked, type: end, status: failure }
+          edges:
+            - { from: start, to: implement }
+            - { from: implement.done, to: verify }
+            - { from: verify.pass, to: review }
+            - { from: verify.fail, to: blocked }
+            - { from: review.approve, to: approved }
+            - { from: review.changes, to: blocked }
+          YAML
+          cat > .ai/cezar/workflows/verify-repair.yaml <<'YAML'
+          version: 2
+          name: verify-repair
+          nodes:
+            - { id: start, type: start }
+            - { id: implement, type: agent, prompt: "{{task}} mock:done" }
+            - { id: verify, type: check, command: "test -f .repair-marker || { touch .repair-marker; echo FIRST_FAIL; exit 1; }" }
+            - { id: repair, type: agent, prompt: "Repair synthetic failure mock:done" }
+            - { id: retry, type: loop, max: 1 }
+            - { id: approved, type: end, status: success }
+            - { id: blocked, type: end, status: failure }
+          edges:
+            - { from: start, to: implement }
+            - { from: implement.done, to: verify }
+            - { from: verify.pass, to: approved }
+            - { from: verify.fail, to: retry }
+            - { from: retry.continue, to: repair }
+            - { from: retry.exhausted, to: blocked }
+            - { from: repair.done, to: verify }
+          YAML
+          git init -q
+          git config user.name "Synthetic Test"
+          git config user.email "synthetic@example.invalid"
+          git add README.md .ai/cezar/workflows
+          git commit -qm "synthetic graph fixtures"
+      - name: Independent review graph
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd "$RUNNER_TEMP/fixture"
+          timeout --signal=TERM --kill-after=5s 75s "$RUNNER_TEMP/pkg/node_modules/.bin/cezar-run" run --workflow review-approve "Synthetic review workflow mock:done" > "$RUNNER_TEMP/review.log" 2>&1
+          rc=$?
+          cat "$RUNNER_TEMP/review.log"
+          echo "REVIEW_EXIT=$rc"
+          test "$rc" -eq 0
+          grep -E 'step:|run done|run review' "$RUNNER_TEMP/review.log"
+      - name: Bounded repair graph
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd "$RUNNER_TEMP/fixture"
+          timeout --signal=TERM --kill-after=5s 75s "$RUNNER_TEMP/pkg/node_modules/.bin/cezar-run" run --workflow verify-repair "Synthetic bounded retry mock:done" > "$RUNNER_TEMP/repair.log" 2>&1
+          rc=$?
+          cat "$RUNNER_TEMP/repair.log"
+          echo "REPAIR_EXIT=$rc"
+          test "$rc" -eq 0
+          grep -E 'step:|FIRST_FAIL|run done|run review' "$RUNNER_TEMP/repair.log"
