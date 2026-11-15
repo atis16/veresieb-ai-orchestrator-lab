@@ -1,0 +1,47 @@
+name: NVIDIA SkillSpector synthetic security scan
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  skillspector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CI: "true"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned runtime
+        run: |
+          python3 -m pip install --user --disable-pip-version-check uv
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run SkillSpector static scan on synthetic skill only
+        shell: bash
+        run: |
+          set -uo pipefail
+          timeout --signal=TERM --kill-after=8s 280s uvx --from 'git+https://github.com/NVIDIA/SkillSpector.git' skillspector scan ./synthetic-skill --no-llm --format json --output "$RUNNER_TEMP/skillspector.json"
+          rc=$?
+          echo "SKILLSPECTOR_RC=$rc"
+          if [ -f "$RUNNER_TEMP/skillspector.json" ]; then
+            python3 - "$RUNNER_TEMP/skillspector.json" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as f: o=json.load(f)
+          print("REPORT_JSON_VALID=YES")
+          print("TOP_LEVEL_FIELDS="+",".join(sorted(o)[:30]))
+          PY
+          else
+            echo "REPORT_JSON_MISSING"
+          fi
+          test "$rc" -eq 0
+      - name: Preserve scanner evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-synthetic-skillspector-report
+          path: ${{ runner.temp }}/skillspector.json
+          if-no-files-found: warn
+          retention-days: 7
