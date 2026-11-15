@@ -1,0 +1,40 @@
+name: Cezar focused mock regression
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cezar-focus-smoke
+  cancel-in-progress: false
+jobs:
+  cezar-focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CEZ_DRY_RUN: "1"
+      CEZ_MOCK_PACE: "0"
+      CEZ_AUTOMATIONS: "0"
+      CEZ_DISPATCH: "0"
+      CEZ_MANAGERS: "0"
+      CEZ_TELEMETRY: "0"
+      CI: "true"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    steps:
+      - name: Create synthetic isolated project
+        run: |
+          mkdir -p "$RUNNER_TEMP/cezar-focus"
+          cd "$RUNNER_TEMP/cezar-focus"
+          printf 'This is a synthetic Cezar smoke test.\n' > README.md
+          git init -q && git config user.name "Synthetic Test" && git config user.email "synthetic@example.invalid"
+          git add README.md && git commit -qm "synthetic input"
+      - name: Run uncredentialed mock and inspect exit
+        working-directory: ${{ runner.temp }}/cezar-focus
+        shell: bash
+        run: |
+          set -uo pipefail
+          timeout --signal=TERM --kill-after=5s 100s npx --yes cezar-run run "Read README.md and summarize it briefly, no code changes" > result.log 2>&1
+          code=$?
+          echo "CEZAR_MOCK_EXIT=$code"
+          tail -c 18000 result.log
+          exit "$code"
