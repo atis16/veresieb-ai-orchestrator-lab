@@ -59,7 +59,7 @@ jobs:
             - { from: implement.done, to: verify }
             - { from: verify.pass, to: approved }
             - { from: verify.fail, to: retry }
-            - { from: retry.continue, to: repair }
+            - { from: retry.repeat, to: repair }
             - { from: retry.exhausted, to: blocked }
             - { from: repair.done, to: verify }
           YAML
