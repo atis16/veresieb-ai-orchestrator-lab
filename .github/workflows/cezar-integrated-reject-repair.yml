@@ -1,0 +1,77 @@
+name: Cezar integrated reject repair approve simulation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integrated-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CEZ_DRY_RUN: "1"
+      CEZ_MOCK_PACE: "0"
+      CEZ_DISPATCH: "0"
+      CEZ_TELEMETRY: "0"
+      CI: "true"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    steps:
+      - name: Create synthetic review flow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/fixture/.ai/cezar/workflows"
+          cd "$RUNNER_TEMP/pkg"
+          timeout 90s npm install --no-save --no-audit --no-fund --ignore-scripts cezar-run@0.20.0
+          cd "$RUNNER_TEMP/fixture"
+          echo "Synthetic review contract — no private files." > README.md
+          cat > .ai/cezar/workflows/reject-repair-approve.yaml <<'YAML'
+          version: 2
+          name: reject-repair-approve
+          nodes:
+            - { id: start, type: start }
+            - { id: implement, type: agent, prompt: "{{task}} mock:done" }
+            - { id: verify-initial, type: check, command: "test -f README.md" }
+            - { id: review-initial, type: agent, prompt: "Review mock:verdict=changes", verdicts: [approve, changes] }
+            - { id: repair, type: agent, prompt: "Apply requested changes mock:done" }
+            - { id: verify-final, type: check, command: "test -f README.md" }
+            - { id: review-final, type: agent, prompt: "Re-evaluate mock:verdict=approve", verdicts: [approve, changes] }
+            - { id: approved, type: end, status: success }
+            - { id: blocked, type: end, status: failed }
+          edges:
+            - { from: start, to: implement }
+            - { from: implement.done, to: verify-initial }
+            - { from: verify-initial.pass, to: review-initial }
+            - { from: verify-initial.fail, to: blocked }
+            - { from: review-initial.changes, to: repair }
+            - { from: review-initial.approve, to: blocked }
+            - { from: repair.done, to: verify-final }
+            - { from: verify-final.pass, to: review-final }
+            - { from: verify-final.fail, to: blocked }
+            - { from: review-final.approve, to: approved }
+            - { from: review-final.changes, to: blocked }
+          YAML
+          git init -q
+          git config user.name "Synthetic"
+          git config user.email "synthetic@example.invalid"
+          git add README.md .ai
+          git commit -qm "synthetic isolated review chain"
+      - name: Verify rejection then repair then second approval
+        shell: bash
+        run: |
+          set +e
+          cd "$RUNNER_TEMP/fixture"
+          timeout --signal=TERM --kill-after=5s 80s "$RUNNER_TEMP/pkg/node_modules/.bin/cezar-run" run --workflow reject-repair-approve "Synthetic review with one rejection mock:done" > "$RUNNER_TEMP/integrated.log" 2>&1
+          rc=$?
+          cat "$RUNNER_TEMP/integrated.log"
+          echo "INTEGRATED_EXIT=$rc"
+          test "$rc" -eq 0 || exit 1
+          python3 - "$RUNNER_TEMP/integrated.log" <<'PY'
+          import pathlib,sys
+          s=pathlib.Path(sys.argv[1]).read_text()
+          phases=["step: implement","step: verify-initial","step: review-initial","verdict: changes","step: repair","step: verify-final","step: review-final","verdict: approve","run done"]
+          indexes=[s.find(x) for x in phases]
+          for name,pos in zip(phases,indexes): print(f'{name}: {"PASS" if pos>=0 else "MISSING"}')
+          if not all(p>=0 for p in indexes) or indexes!=sorted(indexes): raise SystemExit("Review-repair-review order invalid")
+          print("INTEGRATED_SEQUENCE=PASS")
+          PY
