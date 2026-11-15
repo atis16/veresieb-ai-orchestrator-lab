@@ -71,6 +71,7 @@ jobs:
       - name: Independent review graph
         shell: bash
         run: |
+          set +e
           set -uo pipefail
           cd "$RUNNER_TEMP/fixture"
           timeout --signal=TERM --kill-after=5s 75s "$RUNNER_TEMP/pkg/node_modules/.bin/cezar-run" run --workflow review-approve "Synthetic review workflow mock:done" > "$RUNNER_TEMP/review.log" 2>&1
@@ -82,6 +83,7 @@ jobs:
       - name: Bounded repair graph
         shell: bash
         run: |
+          set +e
           set -uo pipefail
           cd "$RUNNER_TEMP/fixture"
           timeout --signal=TERM --kill-after=5s 75s "$RUNNER_TEMP/pkg/node_modules/.bin/cezar-run" run --workflow verify-repair "Synthetic bounded retry mock:done" > "$RUNNER_TEMP/repair.log" 2>&1
