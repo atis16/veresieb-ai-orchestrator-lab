@@ -34,7 +34,7 @@ jobs:
             - { id: verify, type: check, command: "test -f README.md" }
             - { id: review, type: agent, prompt: "Independently review the synthetic task. mock:verdict=approve", verdicts: [approve, changes] }
             - { id: approved, type: end, status: success }
-            - { id: blocked, type: end, status: failure }
+            - { id: blocked, type: end, status: failed }
           edges:
             - { from: start, to: implement }
             - { from: implement.done, to: verify }
@@ -53,7 +53,7 @@ jobs:
             - { id: repair, type: agent, prompt: "Repair synthetic failure mock:done" }
             - { id: retry, type: loop, max: 1 }
             - { id: approved, type: end, status: success }
-            - { id: blocked, type: end, status: failure }
+            - { id: blocked, type: end, status: failed }
           edges:
             - { from: start, to: implement }
             - { from: implement.done, to: verify }
