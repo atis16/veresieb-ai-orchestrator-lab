@@ -1,0 +1,36 @@
+name: Conflict-of-interest guard regression
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  negative-and-positive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --disable-pip-version-check pyyaml
+      - name: Adversarial cases fail closed and valid config stays provisionally eligible
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/coi
+          cat > /tmp/coi/same.yaml <<'YAML'
+          nodes:
+            - { id: implement, type: agent, runner: claude }
+            - { id: reviewer, type: agent, runner: claude }
+          YAML
+          cat > /tmp/coi/missing.yaml <<'YAML'
+          nodes:
+            - { id: implement, type: agent, runner: claude }
+            - { id: reviewer, type: agent }
+          YAML
+          cat > /tmp/coi/different.yaml <<'YAML'
+          nodes:
+            - { id: implement, type: agent, runner: codex }
+            - { id: reviewer, type: agent, runner: claude }
+          YAML
+          if python3 coiguard.py /tmp/coi/same.yaml; then echo "FAIL: same runner accepted"; exit 1; fi
+          if python3 coiguard.py /tmp/coi/missing.yaml; then echo "FAIL: unspecified runner accepted"; exit 1; fi
+          python3 coiguard.py /tmp/coi/different.yaml
+          echo "STATIC_GUARD_TESTS=PASS (not real-account attestation)"
