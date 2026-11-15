@@ -1,0 +1,55 @@
+name: Cezar install and mock diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CI: "true"
+      CEZ_DRY_RUN: "1"
+      CEZ_MOCK_PACE: "0"
+      CEZ_AUTOMATIONS: "0"
+      CEZ_DISPATCH: "0"
+      CEZ_MANAGERS: "0"
+      CEZ_TELEMETRY: "0"
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+    steps:
+      - name: Node environment and npm registry metadata
+        shell: bash
+        run: |
+          node --version
+          npm --version
+          timeout 25s npm view cezar-run version
+      - name: Install Cezar separately
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/cezar-install"
+          cd "$RUNNER_TEMP/cezar-install"
+          timeout 95s npm install --no-audit --no-fund --ignore-scripts --no-save cezar-run
+          test -e node_modules/cezar-run/package.json
+      - name: CLI help probe
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/cezar-install"
+          timeout 20s ./node_modules/.bin/cezar-run --help
+      - name: Headless mock with unbuffered output
+        shell: bash
+        run: |
+          set -u
+          mkdir -p "$RUNNER_TEMP/cezar-synthetic"
+          cd "$RUNNER_TEMP/cezar-synthetic"
+          printf 'Synthetic hello world.\n' > README.md
+          git init -q
+          git config user.name "Synthetic"
+          git config user.email "synthetic@example.invalid"
+          git add README.md
+          git commit -qm "synthetic"
+          echo "START_MOCK"
+          timeout --signal=TERM --kill-after=5s 45s "$RUNNER_TEMP/cezar-install/node_modules/.bin/cezar-run" run "Read README.md and give a short response" || rc=$?
+          echo "MOCK_RC=${rc:-0}"
+          if [ "${rc:-0}" -eq 124 ]; then echo "RESULT=TIMEOUT"; exit 1; fi
+          exit "${rc:-0}"
