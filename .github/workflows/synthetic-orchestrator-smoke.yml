@@ -1,0 +1,66 @@
+name: Synthetic orchestration smoke demos
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: orchestration-sandbox
+  cancel-in-progress: false
+jobs:
+  cezar-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CEZ_DRY_RUN: "1"
+      CI: "true"
+      GH_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Runtime info
+        run: |
+          node --version
+          npm --version
+          mkdir -p "$RUNNER_TEMP/cezar-synthetic"
+      - name: Cezar dry-run headless smoke
+        shell: bash
+        working-directory: ${{ runner.temp }}/cezar-synthetic
+        run: |
+          set -euo pipefail
+          printf 'Synthetic fixture. No user data.\n' > README.md
+          git init -q
+          git config user.name "Synthetic Test"
+          git config user.email "synthetic@example.invalid"
+          git add README.md
+          git commit -qm "initial synthetic fixture"
+          set +e
+          timeout --signal=TERM --kill-after=10s 180s npx --yes cezar-run run "Read the synthetic README and propose a one-sentence summary; do not modify the repository" > cezar.log 2>&1
+          rc=$?
+          set -e
+          sed -E 's/[[:cntrl:]]/ /g' cezar.log | tail -c 12000
+          echo "CEZAR_EXIT=$rc"
+          test "$rc" -eq 0
+  orkestra-fake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CI: "true"
+      GH_TOKEN: ""
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Prepare uv
+        run: |
+          python3 --version
+          python3 -m pip install --disable-pip-version-check --user uv
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Orkestra scripted demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv --version
+          set +e
+          timeout --signal=TERM --kill-after=10s 180s uvx --from 'orkestra-runtime[tui]' orkestra demo > orkestra.log 2>&1
+          rc=$?
+          set -e
+          sed -E 's/[[:cntrl:]]/ /g' orkestra.log | tail -c 12000
+          echo "ORKESTRA_EXIT=$rc"
+          test "$rc" -eq 0
